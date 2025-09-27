@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 
-// Node.js จะใช้ PORT ที่ Render กำหนดให้ หรือใช้ 3000 ถ้าทดสอบในเครื่องตัวเอง
+// Node.js will use the PORT set by Render, or use 3000 for local testing
 const PORT = process.env.PORT || 3000;
 const app = express();
 const server = http.createServer(app);
@@ -11,7 +11,7 @@ const server = http.createServer(app);
 app.use(express.json());
 
 // ------------------------------------------------
-// 1. Webhook Endpoint (รับ HTTP POST Request จาก Farm App)
+// 1. Webhook Endpoint (Receives HTTP POST Request from Farm App)
 // ------------------------------------------------
 
 // WEBHOOK URL: [Your Render URL]/api/webhook/farm-update
@@ -22,7 +22,8 @@ app.post('/api/webhook/farm-update', (req, res) => {
         return res.status(400).send({ message: "Invalid payload: 'statistics' missing." });
     }
 
-    console.log([INWZASHOP WEBHOOK] Received Update: Gems=${data.statistics.gemsTotal});
+    // Log the received update
+    console.log(`[INWZASHOP LOG] Received Update: Gems=${data.statistics.gemsTotal}`);
 
     // Prepare payload to send to all connected dashboards
     const statsPayload = {
@@ -30,7 +31,7 @@ app.post('/api/webhook/farm-update', (req, res) => {
         data: data.statistics 
     };
 
-    // 2. Broadcast (Push) ข้อมูลใหม่ผ่าน WebSocket
+    // 2. Broadcast (Push) the new data via WebSocket
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(statsPayload));
@@ -48,15 +49,15 @@ app.post('/api/webhook/farm-update', (req, res) => {
 const wss = new WebSocket.Server({ server, path: '/ws' });
 
 wss.on('connection', (ws) => {
-    console.log('[INWZASHOP WS] New Dashboard connected.');
+    console.log('[INWZASHOP LOG] New Dashboard connected.');
 
-    // Send initial mock stats upon connection (replace with actual DB load in production)
+    // Send initial mock stats upon connection
     const initialStats = {
         gemsTotal: 5330,
         traitsTotal: 24,
         goldTotal: 15075,
-        runtime: '00:00:00',
-        matchWinRate: '0/0 (0%)',
+        runtime: '03:30:00',
+        matchWinRate: '18/20 (90%)',
         completedOrders: 12450,
         totalAccounts: 15
     };
@@ -64,7 +65,7 @@ wss.on('connection', (ws) => {
     ws.send(JSON.stringify({ type: 'GLOBAL_STATS', data: initialStats }));
 
     ws.on('close', () => {
-        console.log('[INWZASHOP WS] Dashboard disconnected.');
+        console.log('[INWZASHOP LOG] Dashboard disconnected.');
     });
 });
 
@@ -73,7 +74,7 @@ wss.on('connection', (ws) => {
 // ------------------------------------------------
 
 server.listen(PORT, () => {
-    console.log(Inwzashop Server is running on port ${PORT});
-    console.log(Webhook Listener Ready at /api/webhook/farm-update);
-    console.log(WebSocket Server Ready at /ws);
+    console.log(`Inwzashop Server is running on port ${PORT}`);
+    console.log(`Webhook Listener Ready at /api/webhook/farm-update`);
+    console.log(`WebSocket Server Ready at /ws`);
 });

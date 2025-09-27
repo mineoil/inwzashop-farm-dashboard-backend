@@ -14,7 +14,7 @@ app.use(express.json());
 // 1. Webhook Endpoint (Receives HTTP POST Request from Farm App)
 // ------------------------------------------------
 
-// WEBHOOK URL: [Your Render URL]/api/webhook/farm-update
+// WEBHOOK URL:https://inwzashop-farm-dashboard-backend-1.onrender.com/api/webhook/farm-update
 app.post('/api/webhook/farm-update', (req, res) => {
     const data = req.body;
     

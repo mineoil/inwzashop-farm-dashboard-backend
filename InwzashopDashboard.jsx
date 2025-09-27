@@ -1,281 +1,292 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Zap, Users, CheckSquare, Clock, CloudOff, Diamond, Award, Coins } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Clock, Gem, Scroll, DollarSign, Plug, Server, Zap, AlertTriangle, MessageSquare } from 'lucide-react';
 
-// --- Configuration ---
-// **สำคัญ:** เปลี่ยน URL นี้เป็น WebSocket URL ที่ Render หรือ Server ของคุณจะให้มา 
-// ใช้ URL ของ Render ที่ท่านได้มา: https://inwzashop-farm-dashboard-backend-1.onrender.com/
+// URL ของ WebSocket Server ที่ Deploy บน Render
+// *** กรุณาเปลี่ยน URL นี้เป็น URL ที่คุณได้รับจากการ Deploy Server.js ***
 const REALTIME_API_ENDPOINT = "wss://inwzashop-farm-dashboard-backend-1.onrender.com/ws"; 
-// หมายเหตุ: ต้องใช้ 'wss' แทน 'https' สำหรับ WebSocket Secure
 
-// --- Mock Data Function (ใช้สำหรับโหลดเริ่มต้นเท่านั้น) ---
-const initialMockData = {
-    statistics: { gemsTotal: 0, traitsTotal: 0, goldTotal: 0, runtime: '00:00:00', matchWinRate: '0/0 (0%)', completedOrders: 0, totalAccounts: 0 },
-    recentOrders: [
-        { name: 'Loading..', item: 'Waiting for connection', price: 0.00 }
-    ],
-    topBuyers: [
-        { name: 'Neo', spent: 50000.00 },
-        { name: 'Trinity', spent: 35000.00 },
-        { name: 'Morpheus', spent: 15000.00 }
-    ],
-    challengeStatus: [
-        { title: 'Weekly Gem Challenge', gems: 15000, traits: 5, golds: 5000, next: '12 hours' },
-        { title: 'Monthly Trait Goal', gems: 30000, traits: 10, golds: 10000, next: '5 days' },
-        { title: 'Daily Gold Bounty', gems: 500, golds: 1500, next: '2 hours' }
-    ]
+// ข้อมูลจำลองสำหรับแสดงผลเมื่อยังไม่มีการเชื่อมต่อ หรือยังไม่มีข้อมูล
+const initialData = {
+    statistics: {
+        gemsTotal: 0,
+        traitsTotal: 0,
+        goldTotal: 0,
+        macroRuntime: "00:00:00",
+        matchWinRate: 0,
+    },
+    challenge: {
+        gemsToday: 0,
+        traitsToday: 0,
+        goldToday: 0,
+        nextHalfHour: 0,
+        rerollCount: 0,
+    },
+    bounty: {
+        gemsBounty: 0,
+        traitsBounty: 0,
+        goldBounty: 0,
+        nextBountyCheck: 0,
+    },
+    legend: {
+        gemsLegend: 0,
+        traitsLegend: 0,
+        goldLegend: 0,
+    }
 };
 
-
-// --- Sub Components ---
-
-const StatisticCard = ({ title, value, icon, subText, accentColor, isUpdating }) => (
-    <div 
-        className={`p-5 rounded-xl border border-white/10 shadow-lg transition duration-300
-                    bg-[#252525] hover:shadow-[0_0_15px_${accentColor}80]
-                    ${isUpdating ? 'animate-pulse-once' : ''}`}
-    >
-        <div className="flex justify-between items-center mb-2">
-            <p className="text-sm text-white/60">{title}</p>
-            {React.cloneElement(icon, { className: `h-6 w-6 ${accentColor}` })}
+/**
+ * 🎨 Component สำหรับแสดงผลตัวเลขสถิติหลัก
+ */
+const StatisticCard = React.memo(({ icon: Icon, title, value, unit, color }) => (
+    <div className="bg-gray-800 p-4 rounded-xl shadow-lg transition-all duration-300 hover:bg-gray-700/70 transform hover:scale-[1.02] border border-gray-700">
+        <div className="flex items-center space-x-3">
+            <div className={`p-3 rounded-full ${color}`}>
+                <Icon className="w-6 h-6 text-white" />
+            </div>
+            <div>
+                <p className="text-sm font-medium text-gray-400 uppercase">{title}</p>
+                <div className="text-3xl font-extrabold text-white mt-1 flex items-baseline">
+                    {value.toLocaleString()}
+                    {unit && <span className="text-sm font-normal text-gray-400 ml-2">{unit}</span>}
+                </div>
+            </div>
         </div>
-        <span className={`text-3xl font-mono font-bold block ${accentColor}`}>{value}</span>
-        <p className="text-xs mt-1 text-white/50">{subText}</p>
     </div>
-);
+));
 
-const TaskStatusCard = ({ status }) => (
-    <div className="bg-[#1e1e1e] p-4 rounded-xl shadow-inner border border-white/10">
-        <h3 className="text-xl font-mono font-bold mb-3 text-[#00CED1] border-b border-white/10 pb-1">
-            {status.title.toUpperCase()}
-        </h3>
-        <ul className="text-sm space-y-2">
-            <li className="flex justify-between items-center text-white/80">
-                <span className="flex items-center"><Diamond className="h-4 w-4 mr-2 text-red-400" /> Gems:</span>
-                <span className="font-mono text-red-400 font-semibold">{status.gems.toLocaleString()}</span>
-            </li>
-            {status.traits !== undefined && (
-                <li className="flex justify-between items-center text-white/80">
-                    <span className="flex items-center"><Award className="h-4 w-4 mr-2 text-yellow-400" /> Traits:</span>
-                    <span className="font-mono text-yellow-400 font-semibold">{status.traits.toLocaleString()}</span>
-                </li>
-            )}
-            <li className="flex justify-between items-center text-white/80">
-                <span className="flex items-center"><Coins className="h-4 w-4 mr-2 text-amber-500" /> Golds:</span>
-                <span className="font-mono text-amber-500 font-semibold">{status.golds.toLocaleString()}</span>
-            </li>
-            <li className="text-xs pt-1 border-t border-white/5 mt-2 text-white/60">
-                Next Check: <span className="text-[#00CED1]">{status.next}</span>
-            </li>
+/**
+ * 📊 Component สำหรับแสดงผลรายการย่อยในหมวดหมู่
+ */
+const DetailList = React.memo(({ title, data, iconMap }) => (
+    <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700/50 h-full">
+        <h3 className="text-xl font-bold text-blue-400 mb-4 border-b border-blue-400/30 pb-2">{title}</h3>
+        <ul className="space-y-3">
+            {Object.entries(data).map(([key, value]) => {
+                const Icon = iconMap[key];
+                return (
+                    <li key={key} className="flex justify-between items-center text-gray-300 transition-colors duration-200 hover:text-white">
+                        <div className="flex items-center">
+                            {Icon && <Icon className="w-5 h-5 mr-2 text-blue-300" />}
+                            <span className="font-medium capitalize">
+                                {key.replace(/([A-Z])/g, ' $1').trim()}
+                            </span>
+                        </div>
+                        <span className="font-bold text-lg text-white">
+                            {typeof value === 'number' ? value.toLocaleString() : value}
+                        </span>
+                    </li>
+                );
+            })}
         </ul>
     </div>
-);
+));
 
 
-// --- Main App Component ---
+/**
+ * 🚀 Component หลักของ Dashboard
+ */
+function App() {
+    const [data, setData] = useState(initialData);
+    const [wsStatus, setWsStatus] = useState('DISCONNECTED');
+    const [lastUpdate, setLastUpdate] = useState(null);
+    const [logMessage, setLogMessage] = useState('');
 
-export default function App() {
-    const [dashboardData, setDashboardData] = useState(initialMockData);
-    const [updatingStats, setUpdatingStats] = useState({});
-    const [isWsConnected, setIsWsConnected] = useState(false);
-    const wsRef = useRef(null); 
+    const connectWebSocket = useCallback(() => {
+        setWsStatus('CONNECTING');
+        setLogMessage('Attempting to connect to WebSocket server...');
+        
+        const ws = new WebSocket(REALTIME_API_ENDPOINT);
 
-    const handleUpdate = useCallback((newStats) => {
-        setDashboardData(prevData => {
-            const changes = {};
-            // ตรวจสอบการเปลี่ยนแปลงเพื่อ trigger animation
-            if (newStats.gemsTotal !== prevData.statistics.gemsTotal) changes.gems = true;
-            if (newStats.goldTotal !== prevData.statistics.goldTotal) changes.gold = true;
-            
-            setUpdatingStats(changes);
-            setTimeout(() => setUpdatingStats({}), 600);
-
-            return {
-                ...prevData,
-                statistics: { ...prevData.statistics, ...newStats }
-            };
-        });
-    }, []);
-
-    // Effect สำหรับการจัดการ WebSocket Connection
-    useEffect(() => {
-        // ฟังก์ชันเชื่อมต่อ WebSocket
-        const connectWs = () => {
-            // ดึง URL ที่เป็น wss:// จาก REALTIME_API_ENDPOINT
-            const wsUrl = REALTIME_API_ENDPOINT;
-
-            wsRef.current = new WebSocket(wsUrl);
-
-            wsRef.current.onopen = () => {
-                console.log('WebSocket Connected to Inwzashop Server.');
-                setIsWsConnected(true);
-            };
-
-            wsRef.current.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data.type === 'GLOBAL_STATS') {
-                        // **สำคัญ:** รับข้อมูลสถิติที่ Server Push มา
-                        handleUpdate(data.data);
-                    }
-                } catch (error) {
-                    console.error("Error parsing WebSocket message:", error);
-                }
-            };
-
-            wsRef.current.onclose = () => {
-                console.log('WebSocket Disconnected. Reconnecting in 3s...');
-                setIsWsConnected(false);
-                // พยายามเชื่อมต่อใหม่หลังจาก 3 วินาที
-                setTimeout(connectWs, 3000); 
-            };
-
-            wsRef.current.onerror = (error) => {
-                console.error('WebSocket Error:', error);
-                wsRef.current.close(); 
-            };
+        ws.onopen = () => {
+            setWsStatus('CONNECTED');
+            setLogMessage('WebSocket connected successfully.');
         };
 
-        connectWs();
-
-        // Cleanup function
-        return () => {
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                wsRef.current.close();
+        ws.onmessage = (event) => {
+            try {
+                const newData = JSON.parse(event.data);
+                setData(prevData => ({ ...prevData, ...newData }));
+                setLastUpdate(new Date());
+                setLogMessage('Data received and updated.');
+            } catch (e) {
+                console.error("Error parsing WebSocket message:", e);
+                setLogMessage(`Error processing data: ${event.data.substring(0, 50)}...`);
             }
         };
-    }, [handleUpdate]);
 
+        ws.onclose = () => {
+            setWsStatus('DISCONNECTED');
+            setLogMessage('WebSocket disconnected. Attempting to reconnect in 5 seconds...');
+            // Reconnect logic
+            setTimeout(connectWebSocket, 5000);
+        };
+
+        ws.onerror = (error) => {
+            console.error("WebSocket error:", error);
+            setWsStatus('ERROR');
+            setLogMessage('WebSocket error occurred. Check server status.');
+            ws.close();
+        };
+        
+        // Cleanup function for useEffect
+        return ws;
+    }, []);
+
+    useEffect(() => {
+        const wsInstance = connectWebSocket();
+        
+        // Clean up the WebSocket connection when the component unmounts
+        return () => {
+            if (wsInstance) {
+                wsInstance.onclose = null; // Prevent unwanted reconnect on unmount
+                wsInstance.close();
+            }
+        };
+    }, [connectWebSocket]);
+
+    const formattedLastUpdate = useMemo(() => {
+        if (!lastUpdate) return "N/A";
+        return lastUpdate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }, [lastUpdate]);
+    
+    // Icon map for detail list components
+    const commonIconMap = useMemo(() => ({
+        gemsToday: Gem,
+        traitsToday: Scroll,
+        goldToday: DollarSign,
+        nextHalfHour: Clock,
+        rerollCount: Zap,
+        gemsBounty: Gem,
+        traitsBounty: Scroll,
+        goldBounty: DollarSign,
+        nextBountyCheck: Clock,
+        gemsLegend: Gem,
+        traitsLegend: Scroll,
+        goldLegend: DollarSign,
+    }), []);
+    
+
+    const statusColor = useMemo(() => {
+        switch (wsStatus) {
+            case 'CONNECTED': return 'bg-green-500';
+            case 'CONNECTING': return 'bg-yellow-500';
+            case 'ERROR': return 'bg-red-600';
+            default: return 'bg-gray-500';
+        }
+    }, [wsStatus]);
+
+    // Determine win rate color based on value
+    const winRateColor = useMemo(() => {
+        if (data.statistics.matchWinRate >= 80) return 'bg-green-500';
+        if (data.statistics.matchWinRate >= 50) return 'bg-yellow-500';
+        return 'bg-red-500';
+    }, [data.statistics.matchWinRate]);
 
     return (
-        <div className="min-h-screen bg-[#121212] text-white font-sans pb-10">
-            <style jsx global>{`
-                /* Global CSS for aesthetic */
-                body { font-family: 'Inter', sans-serif; }
-                .text-[#00CED1] { color: #00CED1; }
-                .shadow-glow { box-shadow: 0 0 5px #00CED1; }
-                .animate-pulse-once { animation: glow 0.5s ease-in-out 2 alternate; }
-                @keyframes glow {
-                    0%, 100% { box-shadow: 0 0 5px rgba(0, 206, 209, 0.5); }
-                    50% { box-shadow: 0 0 15px #00CED1; }
-                }
-                .marquee-container {
-                    animation: marquee 10s linear infinite;
-                    display: inline-block;
-                    white-space: nowrap;
-                    padding-right: 100%;
-                }
-                @keyframes marquee {
-                    0% { transform: translateX(0%); }
-                    100% { transform: translateX(-50%); }
-                }
-            `}</style>
-            
-            {/* Header / Navigation Bar */}
-            <header className="bg-[#0f0f0f] border-b border-[#00CED1]/30 p-4 shadow-xl">
-                <div className="max-w-7xl mx-auto flex justify-between items-center flex-wrap">
-                    <div className="text-2xl md:text-3xl font-mono font-bold text-[#00CED1] tracking-widest cursor-pointer">
-                        INWZASHOP<span className="text-white/70 text-sm ml-1">FARMING STATUS</span>
-                    </div>
-                    <div className="flex space-x-3 items-center mt-2 md:mt-0">
-                        <span className={`text-xs px-3 py-1 rounded-full font-mono ${isWsConnected ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
-                            {isWsConnected ? 'WS: CONNECTED' : 'WS: DISCONNECTED'}
-                        </span>
-                    </div>
+        <div className="min-h-screen bg-gray-900 text-white p-4 sm:p-8">
+            {/* Header and Status */}
+            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 border-b border-blue-500/50 pb-4">
+                <h1 className="text-4xl font-extrabold text-blue-400 tracking-tight mb-2 sm:mb-0">
+                    INWZASHOP FARMING DASHBOARD
+                </h1>
+                <div className="flex items-center space-x-3">
+                    <span className={`px-3 py-1 text-sm font-semibold rounded-full flex items-center ${statusColor}`}>
+                        {wsStatus === 'CONNECTED' ? <Plug className="w-4 h-4 mr-1" /> : <Server className="w-4 h-4 mr-1" />}
+                        WS: {wsStatus}
+                    </span>
+                    <span className="text-sm text-gray-400">
+                        อัพเดทล่าสุด: {formattedLastUpdate}
+                    </span>
                 </div>
             </header>
 
-            {/* Main Dashboard Content */}
-            <main className="max-w-7xl mx-auto p-4 md:p-8">
-                <h1 className="text-3xl md:text-4xl font-mono font-light mb-8 text-white/90">
-                    <span className="text-[#00CED1]">/</span>GLOBAL<span className="text-[#00CED1]">_</span>STATISTICS
-                </h1>
+            {/* Connection Log Message Box */}
+            <div className="bg-gray-800 p-3 rounded-xl mb-6 shadow-md border border-gray-700/50 flex items-center space-x-2">
+                <MessageSquare className="w-5 h-5 text-blue-400 flex-shrink-0" />
+                <p className="text-sm font-mono text-gray-300 truncate">{logMessage}</p>
+            </div>
 
-                {/* 1. Global Macro/Runtime Status */}
-                <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-                    <StatisticCard
-                        title="Macro Runtime (Hrs:Min:Sec)"
-                        value={dashboardData.statistics.runtime}
-                        icon={<Clock />}
-                        subText="ระยะเวลาที่บอททำงานต่อเนื่อง"
-                        accentColor="text-white"
+            {/* Main Statistics Grid */}
+            <section className="mb-10">
+                <h2 className="text-2xl font-bold text-white mb-4">สถานะภาพรวม (Lifetime Statistics)</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                    <StatisticCard 
+                        icon={Gem} 
+                        title="GEMS TOTAL" 
+                        value={data.statistics.gemsTotal} 
+                        color="bg-purple-600" 
                     />
-                    <StatisticCard
-                        title="Match Win Rate"
-                        value={dashboardData.statistics.matchWinRate}
-                        icon={<Award />}
-                        subText="อัตราการชนะในแมตช์รวม"
-                        accentColor="text-green-400"
+                    <StatisticCard 
+                        icon={Scroll} 
+                        title="TRAITS TOTAL" 
+                        value={data.statistics.traitsTotal} 
+                        color="bg-indigo-600" 
                     />
-                    <StatisticCard
-                        title="Total Gems"
-                        value={dashboardData.statistics.gemsTotal.toLocaleString()}
-                        icon={<Diamond />}
-                        subText={`Traits รวม: ${dashboardData.statistics.traitsTotal}`}
-                        accentColor="text-red-400"
-                        isUpdating={updatingStats.gems}
+                    <StatisticCard 
+                        icon={DollarSign} 
+                        title="GOLD TOTAL" 
+                        value={data.statistics.goldTotal} 
+                        color="bg-yellow-600" 
                     />
-                    <StatisticCard
-                        title="Total Golds"
-                        value={dashboardData.statistics.goldTotal.toLocaleString()}
-                        icon={<Coins />}
-                        subText={`บัญชีที่ใช้งาน: ${dashboardData.statistics.totalAccounts}`}
-                        accentColor="text-amber-500"
-                        isUpdating={updatingStats.gold}
+                    <StatisticCard 
+                        icon={Clock} 
+                        title="MACRO RUNTIME" 
+                        value={data.statistics.macroRuntime} 
+                        unit="HH:MM:SS"
+                        color="bg-pink-600" 
                     />
-                </section>
-
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                    {/* 2. Challenge/Bounty Status (Main Content - 3/4 Width) */}
-                    <section className="lg:col-span-3">
-                        <h2 className="text-2xl font-mono font-light mb-4 text-white/80 border-b border-white/10 pb-2">
-                            SUB-MISSION STATUS (ภารกิจย่อย)
-                        </h2>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {dashboardData.challengeStatus.map((status, index) => (
-                                <TaskStatusCard key={index} status={status} />
-                            ))}
-                        </div>
-                    </section>
-
-                    {/* 3. Side Panel (1/4 Width) */}
-                    <aside className="lg:col-span-1 space-y-6">
-
-                        {/* Recent Orders (Marquee) */}
-                        <div className="bg-[#1e1e1e] p-4 rounded-xl shadow-2xl border border-[#00CED1]/20">
-                            <h3 className="text-xl font-mono font-light mb-3 text-white/80 border-b border-white/10 pb-2">
-                                RECENT ORDERS
-                            </h3>
-                            <div className="h-40 border border-white/10 rounded-lg overflow-hidden relative">
-                                <div className="marquee-container">
-                                    <div className="space-y-2 inline-block">
-                                        {[...dashboardData.recentOrders, ...dashboardData.recentOrders, ...dashboardData.recentOrders].map((order, index) => (
-                                            <span key={index} className="flex justify-between items-center text-white/80 p-2 bg-[#1e1e1e]/50 border-l-4 border-[#00CED1]/50 mr-4 inline-block w-[200px] text-xs">
-                                                <span>{order.name}: {order.item}</span>
-                                                <span className="text-green-400 font-bold ml-2">${order.price.toFixed(2)}</span>
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                            <p className="text-xs text-white/50 mt-2">Streaming live transactions...</p>
-                        </div>
-
-                        {/* Top Buyers */}
-                        <div className="bg-[#1e1e1e] p-4 rounded-xl shadow-2xl border border-[#6a0dad]/20">
-                            <h3 className="text-xl font-mono font-light mb-3 text-white/80 border-b border-white/10 pb-2">
-                                TOP BUYERS
-                            </h3>
-                            <ol className="space-y-2 list-decimal list-inside text-sm">
-                                {dashboardData.topBuyers.map((buyer, index) => (
-                                    <li key={index} className="text-white/90 truncate">
-                                        <span className="font-bold text-[#6a0dad] mr-2">{index + 1}.</span> {buyer.name} <span className="text-xs text-white/60">(${(buyer.spent).toLocaleString('en-US', { minimumFractionDigits: 2 })})</span>
-                                    </li>
-                                ))}
-                            </ol>
-                        </div>
-                    </aside>
+                    <StatisticCard 
+                        icon={Zap} 
+                        title="MATCH WIN RATE" 
+                        value={data.statistics.matchWinRate} 
+                        unit="%"
+                        color={winRateColor} 
+                    />
                 </div>
-            </main>
+            </section>
+
+            {/* Detailed Categories Grid */}
+            <section>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <DetailList 
+                        title="CHALLENGE STATUS (TODAY)" 
+                        data={{
+                            gemsToday: data.challenge.gemsToday,
+                            traitsToday: data.challenge.traitsToday,
+                            goldToday: data.challenge.goldToday,
+                            nextHalfHour: data.challenge.nextHalfHour,
+                            rerollCount: data.challenge.rerollCount,
+                        }}
+                        iconMap={commonIconMap}
+                    />
+                    <DetailList 
+                        title="BOUNTY STATUS" 
+                        data={{
+                            gemsBounty: data.bounty.gemsBounty,
+                            traitsBounty: data.bounty.traitsBounty,
+                            goldBounty: data.bounty.goldBounty,
+                            nextBountyCheck: data.bounty.nextBountyCheck,
+                        }}
+                        iconMap={commonIconMap}
+                    />
+                    <DetailList 
+                        title="LEGEND STAGE" 
+                        data={{
+                            gemsLegend: data.legend.gemsLegend,
+                            traitsLegend: data.legend.traitsLegend,
+                            goldLegend: data.legend.goldLegend,
+                        }}
+                        iconMap={commonIconMap}
+                    />
+                </div>
+            </section>
+            
+            {/* Footer / Credits */}
+            <footer className="mt-10 pt-4 border-t border-gray-700 text-center text-sm text-gray-500">
+                Dashboard powered by React and Tailwind CSS. Real-time updates via WebSockets.
+            </footer>
         </div>
     );
 }
+
+export default App; // ต้อง export ตัวนี้

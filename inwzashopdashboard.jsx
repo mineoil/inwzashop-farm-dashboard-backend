@@ -3,8 +3,7 @@ import { Clock, Gem, Scroll, DollarSign, Plug, Server, Zap, AlertTriangle, Messa
 
 // URL ของ WebSocket Server ที่ Deploy บน Render
 // *** กรุณาเปลี่ยน URL นี้เป็น URL ที่คุณได้รับจากการ Deploy Server.js ***
-const REALTIME_API_ENDPOINT = "wss://inwzashop-farm-dashboard-backend-1.onrender.com/ws"; 
-
+const REALTIME_API_ENDPOINT = "wss://inwzashop-farm-dashboard-backend-1.onrender.com/ws
 // ข้อมูลจำลองสำหรับแสดงผลเมื่อยังไม่มีการเชื่อมต่อ หรือยังไม่มีข้อมูล
 const initialData = {
     statistics: {
